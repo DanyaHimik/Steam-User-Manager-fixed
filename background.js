@@ -60,13 +60,17 @@
 	};
 
 	function getOffsetTime(){
-		req('post', 'https://api.steampowered.com//ITwoFactorService/QueryTime/v1/').done(data => {
+		req('post', 'https://api.steampowered.com/ITwoFactorService/QueryTime/v1/', { input_json: '{}' }).done(data => {
 			if('server_time' in data?.response){
 				OffsetTime =  data.response.server_time - getTime();
 			}
 		});
 	};
 	getOffsetTime();
+
+	function steamApiV1(id, iface, method, payload){
+		return req('post', `https://api.steampowered.com/${iface}/${method}/v1`, {input_json: JSON.stringify(payload || {})}, id ? {[`${chrome.runtime.id}_id`]: id} : undefined);
+	};
 
 	localStorage.dialog_heading = localStorage.dialog_content = localStorage.dialog_button = localStorage.dialog_twofa = localStorage.dialog_LoadingWrapper = localStorage.scrollTop = '';
 	const subtle = window.crypto.subtle,
@@ -563,10 +567,7 @@
 		};
 	
 		let PollAuthSessionStatus = () => {
-			req('post', 'https://api.steampowered.com/IAuthenticationService/PollAuthSessionStatus/v1', {
-				client_id,
-				request_id
-			}, {[`${chrome.runtime.id}_id`]: id}).done(data => {
+			steamApiV1(id, 'IAuthenticationService', 'PollAuthSessionStatus', { client_id, request_id }).done(data => {
 				if('refresh_token' in data?.response){
 					req('post', 'https://login.steampowered.com/jwt/finalizelogin', {
 						nonce: data.response.refresh_token,
@@ -630,12 +631,7 @@
 			});
 		};
 		let UpdateAuthSessionWithSteamGuardCode = (code, code_type) => {
-			req('post', 'https://api.steampowered.com/IAuthenticationService/UpdateAuthSessionWithSteamGuardCode/v1', {
-				client_id,
-				steamid,
-				code,
-				code_type
-			}, {[`${chrome.runtime.id}_id`]: id}).fail(() => {
+			steamApiV1(id, 'IAuthenticationService', 'UpdateAuthSessionWithSteamGuardCode', { client_id, steamid, code, code_type }).fail(() => {
 				onFail();
 				clearTimeout(Timeout);
 				cb({success: false, message: 'Undefined error'});
@@ -643,7 +639,7 @@
 		};
 		let BeginAuthSessionViaCredentials = data => {
 			let encrypted_password = RSA.encrypt(account.password, RSA.getPublicKey(data.response.publickey_mod, data.response.publickey_exp));
-			req('post', 'https://api.steampowered.com/IAuthenticationService/BeginAuthSessionViaCredentials/v1', {
+			steamApiV1(id, 'IAuthenticationService', 'BeginAuthSessionViaCredentials', {
 				account_name: account.login,
 				encrypted_password,
 				encryption_timestamp: data.response.timestamp,
@@ -655,7 +651,7 @@
 				language: 1,
 				persistence: 1,
 				qos_level: 2,
-			}, {[`${chrome.runtime.id}_id`]: id}).done(data => {
+			}).done(data => {
 				BeginAuthSessionViaCredentials_done = true;
 				steamid = data?.response?.steamid;
 				client_id = data?.response?.client_id;
@@ -722,25 +718,9 @@
 			});
 		};
 
-		req('post', 'https://api.steampowered.com/IAuthenticationService/BeginAuthSessionViaQR/v1', {
-			device_friendly_name,
-			platform_type,
-			website_id,
-			device_details
-		}, {[`${chrome.runtime.id}_id`]: id}).done(data => {
-			client_id = data?.response?.client_id;
-			request_id = data?.response?.request_id;
-			if(client_id && client_id){
-				GetPasswordRSAPublicKey();
-			}else{
-				onFail();
-				clearTimeout(Timeout);
-				cb({success: false, message: 'Undefined error'});
-			}
-		}).fail(() => {
-			onFail();
-			cb({success: false, message: 'Undefined error'});
-		});
+
+		// Start credentials-based auth flow (login/password + Steam Guard)
+		GetPasswordRSAPublicKey();
 	};
 
 	async function addAccount(details, cb){
